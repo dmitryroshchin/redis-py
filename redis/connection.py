@@ -1,6 +1,7 @@
 import copy
 import os
 import socket
+import socks
 import ssl
 import sys
 import threading
@@ -674,6 +675,8 @@ class Connection(AbstractConnection):
         socket_keepalive=False,
         socket_keepalive_options=None,
         socket_type=0,
+        self.socks5_proxy_host = os.environ['REDIS_SOCKS5_PROXY_HOST']
+        self.socks5_proxy_port = int(os.environ['REDIS_SOCKS5_PROXY_PORT'])
         **kwargs,
     ):
         self.host = host
@@ -701,24 +704,29 @@ class Connection(AbstractConnection):
             family, socktype, proto, canonname, socket_address = res
             sock = None
             try:
-                sock = socket.socket(family, socktype, proto)
+             if self.socks5_proxy_host and self.socks5_proxy_port:
+                    sock = socks.socksocket()
+                    sock.set_proxy(socks.SOCKS5, self.socks5_proxy_host, self.socks5_proxy_port)
+                    sock.connect(socket_address, self.port)
+                else:
+                    sock = socket.socket(family, socktype, proto)
                 # TCP_NODELAY
-                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-                # TCP_KEEPALIVE
-                if self.socket_keepalive:
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-                    for k, v in self.socket_keepalive_options.items():
-                        sock.setsockopt(socket.IPPROTO_TCP, k, v)
+                    # TCP_KEEPALIVE
+                    if self.socket_keepalive:
+                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                        for k, v in self.socket_keepalive_options.items():
+                            sock.setsockopt(socket.IPPROTO_TCP, k, v)
 
-                # set the socket_connect_timeout before we connect
-                sock.settimeout(self.socket_connect_timeout)
+                    # set the socket_connect_timeout before we connect
+                    sock.settimeout(self.socket_connect_timeout)
 
-                # connect
-                sock.connect(socket_address)
+                    # connect
+                    sock.connect(socket_address)
 
-                # set the socket_timeout now that we're connected
-                sock.settimeout(self.socket_timeout)
+                    # set the socket_timeout now that we're connected
+                    sock.settimeout(self.socket_timeout)
                 return sock
 
             except OSError as _:
